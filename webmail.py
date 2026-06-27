@@ -266,7 +266,6 @@ TODO Features:
 1. should get notification, of new webmails, each time i start my computer. if any. 
 2. ml classification, to predict the importance of that email. 
 3. standalone python gui, to be run...
-
 '''
 
 
