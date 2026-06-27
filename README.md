@@ -10,3 +10,6 @@ I do have some interesting ideas that i want to implement.
 Right now the only way to access the client is by cloning this repo, making the venv (uv recommended), pip installing everything needed, and running the app.py
 
 Perhaps, soon ill learn how to professionally package my apps for distribution.
+
+Here is a screenshot of version, say 0.0.1
+![A screenshot should be loaded here...](image.png)
