@@ -3,9 +3,15 @@ import imaplib
 from email import message_from_bytes
 from email import policy
 from email.parser import BytesParser
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SSO_TOKEN = os.getenv("SSO_TOKEN")
 
 EMAIL = "24b2177@iitb.ac.in"
-TOKEN = "2d0b787242b92507cb7756ac3fe0960d"
+TOKEN = SSO_TOKEN
 
 
 class Email:
@@ -244,7 +250,7 @@ def print_emails(emails):
 
 
 
-def main():
+if __name__ == "__main__":
 
     my_mail = connect()
     mailboxes = get_mailboxes(my_mail)
@@ -258,7 +264,6 @@ def main():
     close(my_mail)
 
 
-main()
 
 
 '''
