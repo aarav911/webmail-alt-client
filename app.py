@@ -5,7 +5,6 @@ from tkinter import ttk, messagebox, simpledialog
 import imaplib
 from email import policy
 from email.parser import BytesParser, HeaderParser
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from backend import MailBackend
 
@@ -204,7 +203,7 @@ class WebmailApp:
 
     def build_sidebar(self):
         self.sidebar = ttk.Frame(self.main)
-        ttk.Label(self.sidebar, text="MAILBOXES", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=10, pady=10)
+        ttk.Label(self.sidebar, text="MAILBOXES", font=("Noto Sans", 10, "bold")).pack(anchor="w", padx=10, pady=10)
 
         self.mailbox_list = tk.Listbox(self.sidebar, activestyle="none", selectmode="single")
         self.mailbox_list.pack(fill="both", expand=True, padx=5, pady=5)
@@ -237,18 +236,18 @@ class WebmailApp:
 
     def build_email_viewer(self):
         self.viewer_frame = ttk.Frame(self.content)
-        self.subject_label = ttk.Label(self.viewer_frame, text="", font=("Segoe UI", 14, "bold"))
+        self.subject_label = ttk.Label(self.viewer_frame, text="", font=("Noto Sans", 14, "bold"))
         self.subject_label.pack(anchor="w", padx=15, pady=(15, 2))
 
-        self.from_label = ttk.Label(self.viewer_frame, text="", font=("Segoe UI", 10, "italic"))
+        self.from_label = ttk.Label(self.viewer_frame, text="", font=("Noto Sans", 10, "italic"))
         self.from_label.pack(anchor="w", padx=15, pady=2)
 
-        self.date_label = ttk.Label(self.viewer_frame, text="", font=("Segoe UI", 9))
+        self.date_label = ttk.Label(self.viewer_frame, text="", font=("Noto Sans", 9))
         self.date_label.pack(anchor="w", padx=15, pady=(0, 10))
 
         ttk.Separator(self.viewer_frame).pack(fill="x", padx=15)
 
-        self.body = tk.Text(self.viewer_frame, wrap="word", font=("Segoe UI", 10))
+        self.body = tk.Text(self.viewer_frame, wrap="word", font=("Noto Sans", 10))
         self.body.pack(fill="both", expand=True, padx=15, pady=15)
         self.content.add(self.viewer_frame, weight=3)
 
