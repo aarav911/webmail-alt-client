@@ -9,6 +9,7 @@ from email.parser import BytesParser, HeaderParser
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from email.header import decode_header
+import ssl
 
 
 
@@ -63,6 +64,7 @@ class MailBackend:
         self.email_address = ""
         self.token = ""
         self.load_credentials()
+        
 
     def load_credentials(self):
         """Loads client connection profiles without local shell variables."""
@@ -93,7 +95,9 @@ class MailBackend:
             if self.mail:
                 try: self.mail.logout()
                 except: pass
-            self.mail = imaplib.IMAP4_SSL(host=self.host, port=self.port)
+            ctx = ssl.create_default_context()
+            ctx.set_ciphers('DEFAULT')
+            self.mail = imaplib.IMAP4_SSL(host=self.host, port=self.port, ssl_context=ctx)
             status, data = self.mail.login(self.email_address, self.token)
             if status == "OK":
                 return True, "Success"

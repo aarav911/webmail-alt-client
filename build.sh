@@ -77,7 +77,7 @@ main() {
     log_info "Script started successfully from: $SCRIPT_DIR"
     
     # --- Your Code Here ---
-    pyinstaller --onefile -w --name Webmail --icon=./assets/icon.ico app.py 
+    pyinstaller --onefile -w --name Webmail --add-data "icon.ico:." app.py 
     # ----------------------
 
     log_info "Script finished."

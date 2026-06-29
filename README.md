@@ -13,3 +13,4 @@ Perhaps, soon ill learn how to professionally package my apps for distribution.
 
 Here is a screenshot of version, say 0.0.1
 ![A screenshot should be loaded here...](image.png)
+

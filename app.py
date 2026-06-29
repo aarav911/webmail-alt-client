@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
@@ -15,6 +16,18 @@ except ImportError:
     HAS_THEME = False
 
 CONFIG_FILE = "webmail_config.json"
+
+# Helper
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 
 
 # ==============================================================================
@@ -52,9 +65,20 @@ class WebmailApp:
         self.root.geometry("1500x900")
         self.dark_mode = True
 
+        icon_path = resource_path("icon.ico")
+        if os.path.exists(icon_path):        
+            icon = tk.PhotoImage(icon_path)
+            self.root.iconphoto(True, icon)
+        else: 
+            print(f"Error: Icon not found at {icon_path}")
+
+
         self.backend = MailBackend()
         self.current_emails = []
         self.selected_mailbox = ""
+
+       
+
         
         # Thread scheduler execution pooling engine
         self.executor = ThreadPoolExecutor(max_workers=2)

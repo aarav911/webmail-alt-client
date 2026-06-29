@@ -5,6 +5,7 @@ from email import policy
 from email.parser import BytesParser
 import os
 from dotenv import load_dotenv
+import ssl
 
 load_dotenv()
 
@@ -76,10 +77,12 @@ def connect():
 
     try:
         print("Connecting...")
-
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers('DEFAULT')
         mail = imaplib.IMAP4_SSL(
             host="imap.iitb.ac.in",
-            port=993
+            port=993,
+            ssl_context=ctx
         )
 
         print("Connected.")
