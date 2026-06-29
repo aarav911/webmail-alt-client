@@ -1,6 +1,9 @@
-name: Build Windows EXE
+name: Build and Release
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers only on tags like v1.0, v1.2.3
 
 jobs:
   build-windows:
@@ -21,12 +24,12 @@ jobs:
           pip install -r requirements.txt
       
       - name: Build EXE
-        # Ensure icon.ico exists in repo root, or remove --icon=icon.ico
         run: python -m PyInstaller --onefile -w --name Webmail --icon=icon.ico app.py 
       
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: windows-exe
-          # Fixed path to match the --name argument above
-          path: dist/Webmail.exe    
+          files: dist/Webmail.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   
