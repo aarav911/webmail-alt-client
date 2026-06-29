@@ -14,3 +14,13 @@ Perhaps, soon ill learn how to professionally package my apps for distribution.
 Here is a screenshot of version, say 0.0.1
 ![A screenshot should be loaded here...](image.png)
 
+
+
+## 📥 Download
+
+Get the latest Windows executable here:  
+[**Download Webmail.exe (v1.2)**](https://github.com/aarav911/webmail-alt-client/releases/download/v1.2/Webmail.exe)
+
+*Requires Windows 10/11. No installation needed.*   
+
+Note: You will need to put in your SSO TOKEN to login. [Get your SSO token following these steps.](https://www.cc.iitb.ac.in/attachments/ssoat/stepToReplacLDAPp-wWithSSOATforEmailClient.pdf)
