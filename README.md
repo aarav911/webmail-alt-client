@@ -19,7 +19,7 @@ Here is a screenshot of version, say 0.0.1
 ## 📥 Download
 
 Get the latest Windows executable here:  
-[**Download Webmail.exe (v1.2)**](https://github.com/aarav911/webmail-alt-client/releases/download/v1.2/Webmail.exe)
+[**Download Webmail.exe (v1.3)**](https://github.com/aarav911/webmail-alt-client/releases/download/v1.3/Webmail.exe)
 
 *Requires Windows 10/11. No installation needed.*   
 
