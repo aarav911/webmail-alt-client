@@ -1,13 +1,13 @@
 import os
 import sys
-import json
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-import imaplib
 from email import policy
 from email.parser import BytesParser, HeaderParser
 from concurrent.futures import ThreadPoolExecutor
 from backend import MailBackend
+from tkinterweb import HtmlFrame
+import html
 
 try:
     import sv_ttk
@@ -27,7 +27,6 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
-
 
 
 # ==============================================================================
@@ -61,7 +60,7 @@ class SettingsDialog(simpledialog.Dialog):
 class WebmailApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Webmail Alt - Optimized")
+        self.root.title("Webmail Alt")
         self.root.geometry("1500x900")
         self.dark_mode = True
 
@@ -72,14 +71,11 @@ class WebmailApp:
         else: 
             print(f"Error: Icon not found at {icon_path}")
 
-
         self.backend = MailBackend()
         self.current_emails = []
         self.selected_mailbox = ""
+        self.current_email = None
 
-       
-
-        
         # Thread scheduler execution pooling engine
         self.executor = ThreadPoolExecutor(max_workers=2)
 
@@ -159,7 +155,7 @@ class WebmailApp:
         for idx, email in enumerate(self.current_emails):
             self.email_tree.insert("", "end", iid=str(idx), values=(email.sender, email.subject, email.date))
             
-        self.set_status(f"Loaded summary index index fields for {len(self.current_emails)} records inside '{mailbox_name}'.")
+        self.set_status(f"Loaded summary index fields for {len(self.current_emails)} records inside '{mailbox_name}'.")
 
     def on_email_selected(self, event):
         selection = self.email_tree.selection()
@@ -184,24 +180,114 @@ class WebmailApp:
         self.subject_label.config(text=email.subject)
         self.from_label.config(text=f"From: {email.sender}")
         self.date_label.config(text=f"Date: {email.date}")
+
+        self.current_email = email
+
         
-        self.body.delete("1.0", "end")
-        
-        # 1. Determine which body payload to pull from
-        if email.text_body:
-            raw_content = email.text_body
-        elif email.html_body:
-            raw_content = "[HTML Content fallback display mode]\n\n" + email.html_body
+        # Determine the best rendering payload
+        if hasattr(email, 'html_body') and email.html_body:
+            render_content = email.html_body
+        elif hasattr(email, 'text_body') and email.text_body:
+            # Clean text format and render inside plain text styles within the HTML frame
+            # sanitized = email.text_body.replace("\r\n", "\n").replace("\r", "\n")
+            render_content = f"<html><body><pre style='font-family: sans-serif; white-space: pre-wrap;'>{html.escape(email.text_body)}</pre></body></html>"
         else:
-            raw_content = "(No displayable content payload alternative structured layout elements found.)"
+            render_content = "<html><body><p style='color: gray; font-style: italic;'>No displayable payload variants found.</p></body></html>"
         
-        # 2. CRITICAL FIX: Clean out carriage returns (\r) to banish ghost box artifacts
-        sanitized_content = raw_content.replace("\r\n", "\n").replace("\r", "\n")
-        
-        # 3. Populate the text view
-        self.body.insert("1.0", sanitized_content)
+        # Load content into the TkinterWeb structural HTML pane
+
+        themed_content = self.parse_and_thematize_html(render_content, self.dark_mode)
+
+        try:
+            self.body.load_html(themed_content)
+        except AttributeError:
+            self.body.set_html(themed_content)
+            
         self.set_status("Done.")
 
+
+    def parse_and_thematize_html(self, html_content, is_dark_mode):
+        """
+        Sanitizes and wraps an HTML body with programmatic theme-overriding 
+        CSS directives without destroying explicit tabular structures.
+        """
+        if not html_content:
+            return ""
+            
+        # Standard CSS Variables mapping for UI parity
+        bg_color = "#1e1e1e" if is_dark_mode else "#ffffff"
+        text_color = "#f5f5f5" if is_dark_mode else "#1a1a1a"
+        accent_link = "#4a9eff" if is_dark_mode else "#0066cc"
+        
+        # CSS Injected Reset Rule Block
+        theme_css = f"""
+        <style>
+            /* Force structural base colors */
+            html, body, table, td, div, span, p {{
+                background-color: {bg_color} !important;
+                color: {text_color} !important;
+            }}
+            
+            /* Ensure links remain visible and high-contrast */
+            a {{
+                color: {accent_link} !important;
+                text-decoration: underline !important;
+            }}
+            
+            /* Prevent nested images from acting like flashbangs */
+            img, video {{
+                opacity: { '0.85' if is_dark_mode else '1.0' } !important;
+                filter: { 'brightness(0.8) contrast(1.1)' if is_dark_mode else 'none' } !important;
+            }}
+            
+            /* Keep formatted plain text structures aligned */
+            pre {{
+                background-color: { '#2d2d2d' if is_dark_mode else '#f4f4f4' } !important;
+                color: {text_color} !important;
+                padding: 10px;
+                border-radius: 4px;
+                white-space: pre-wrap;
+            }}
+        </style>
+        """
+        
+        # If the email lacks structural wrapper tags, supply a baseline layout
+        if "<body" not in html_content.lower():
+            html_content = f"<html><body>{html_content}</body></html>"
+            
+        # Dynamically inject our style payload directly behind the body open tag
+        # to override inline presentation declarations down the DOM tree tree structure.
+        body_idx = html_content.lower().find("<body")
+        if body_idx != -1:
+            # Find the end of the opening body tag (handling arbitrary element attributes)
+            closing_bracket_idx = html_content.find(">", body_idx)
+            if closing_bracket_idx != -1:
+                return html_content[:closing_bracket_idx+1] + theme_css + html_content[closing_bracket_idx+1:]
+                
+        return theme_css + html_content
+    def get_blank_themed_page(self, is_dark_mode):
+        bg_color = "#1e1e1e" if is_dark_mode else "#ffffff"
+        text_color = "#f5f5f5" if is_dark_mode else "#1a1a1a"
+
+        return f"""
+        <html>
+        <head>
+            <style>
+                html, body {{
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;
+                    height: 100%;
+                    background-color: {bg_color};
+                    color: {text_color};
+                    overflow: hidden;
+                }}
+            </style>
+        </head>
+        <body>
+        </body>
+        </html>
+        """
     # --------------------------------------------------------------------------
     # WINDOW ASSEMBLY METHOD WRAPPERS
     # --------------------------------------------------------------------------
@@ -271,8 +357,18 @@ class WebmailApp:
 
         ttk.Separator(self.viewer_frame).pack(fill="x", padx=15)
 
-        self.body = tk.Text(self.viewer_frame, wrap="word", font=("Noto Sans", 10))
+        self.body = HtmlFrame(
+            self.viewer_frame,
+            messages_enabled=False,
+            
+        )
+        
+        
+
         self.body.pack(fill="both", expand=True, padx=15, pady=15)
+        self.body.load_html(
+            self.get_blank_themed_page(self.dark_mode)
+        )
         self.content.add(self.viewer_frame, weight=3)
 
     def build_statusbar(self):
@@ -291,6 +387,13 @@ class WebmailApp:
         else:
             sv_ttk.set_theme("light")
             self.theme_btn.config(text="☀")
+        if self.current_email:
+            self._ui_display_email_body(self.current_email)
+        # if no email is there
+        if not self.subject_label["text"]:
+            self.body.load_html(
+                self.get_blank_themed_page(self.dark_mode)
+            )
 
     def run(self):
         try:
