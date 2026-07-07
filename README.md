@@ -25,6 +25,11 @@ Note: You will need to put in your SSO TOKEN to login. [Get your SSO token follo
 
 
 ---
+## More screenshots
+![alt text](image-1.png)
+HTML rendering!!!
+
+---
 ### Feature plan: 
 In order of completion:
 1. Wizard setup and in-app update
