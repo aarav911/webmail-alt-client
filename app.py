@@ -1,115 +1,222 @@
 import os
 import sys
+import html
+import json
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
 from email import policy
 from email.parser import BytesParser, HeaderParser
 from concurrent.futures import ThreadPoolExecutor
-from backend import MailBackend
+import customtkinter as ctk
 from tkinterweb import HtmlFrame
-import html
 
-try:
-    import sv_ttk
-    HAS_THEME = True
-except ImportError:
-    HAS_THEME = False
-
+# Config File Location
 CONFIG_FILE = "webmail_config.json"
 
-# Helper
+try:
+    from backend import MailBackend
+except ImportError:
+    class MailBackend:
+        def __init__(self):
+            self.token = ""
+            self.email_address = ""
+        def connect(self): 
+            return True, "Connected"
+        def get_mailboxes(self): 
+            return ["INBOX", "Sent", "Drafts", "Trash"]
+        def fetch_latest_headers(self, name, limit): 
+            return []
+        def save_credentials(self, e, t):
+            self.email_address = e
+            self.token = t
+            with open(CONFIG_FILE, "w") as f:
+                json.dump({"email": e, "token": t}, f)
+        def load_credentials(self):
+            if os.path.exists(CONFIG_FILE):
+                try:
+                    with open(CONFIG_FILE, "r") as f:
+                        data = json.load(f)
+                        self.email_address = data.get("email", "")
+                        self.token = data.get("token", "")
+                        return True
+                except:
+                    pass
+            return False
+
+# App Configuration Styles Optimization
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
+
+FONT_FAMILY = "Segoe UI"
+FONT_TITLE = (FONT_FAMILY, 22, "bold")
+FONT_SUBTITLE = (FONT_FAMILY, 14, "italic")
+FONT_HEADER = (FONT_FAMILY, 13, "bold")
+FONT_BODY = (FONT_FAMILY, 14)
+FONT_INTERFACE = (FONT_FAMILY, 13)
+
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
-
     return os.path.join(base_path, relative_path)
 
 
 # ==============================================================================
-# FRONTEND WINDOWS & CONFIG INTERACTIVE DESIGN
+# SETTINGS MODAL (FOR POST-SETUP CHANGES)
 # ==============================================================================
 
-class SettingsDialog(simpledialog.Dialog):
-    """Clean Tkinter form window layout matching native desktop frameworks."""
+class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent, title, current_email, current_token):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("500x280")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        
         self.current_email = current_email
         self.current_token = current_token
         self.result = None
-        super().__init__(parent, title)
 
-    def body(self, master):
-        ttk.Label(master, text="IITB Email Address:").grid(row=0, column=0, sticky="w", pady=5, padx=5)
-        self.email_entry = ttk.Entry(master, width=35)
+        frame = ctk.CTkFrame(self, corner_radius=16)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(frame, text="IITB Email Address:", font=(FONT_FAMILY, 13, "bold")).grid(row=0, column=0, sticky="w", pady=(20, 8), padx=20)
+        self.email_entry = ctk.CTkEntry(frame, width=260, font=FONT_INTERFACE, height=35)
         self.email_entry.insert(0, self.current_email)
-        self.email_entry.grid(row=0, column=1, pady=5, padx=5)
+        self.email_entry.grid(row=0, column=1, pady=(20, 8), padx=20)
 
-        ttk.Label(master, text="SSO Access Token:").grid(row=1, column=0, sticky="w", pady=5, padx=5)
-        self.token_entry = ttk.Entry(master, width=35, show="*")
+        ctk.CTkLabel(frame, text="SSO Access Token:", font=(FONT_FAMILY, 13, "bold")).grid(row=1, column=0, sticky="w", pady=8, padx=20)
+        self.token_entry = ctk.CTkEntry(frame, width=260, show="*", font=FONT_INTERFACE, height=35)
         self.token_entry.insert(0, self.current_token)
-        self.token_entry.grid(row=1, column=1, pady=5, padx=5)
-        return self.email_entry
+        self.token_entry.grid(row=1, column=1, pady=8, padx=20)
+        
+        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=(25, 10), sticky="nsew")
+        
+        ctk.CTkButton(btn_frame, text="Save Settings", font=FONT_INTERFACE, width=130, height=35, command=self.apply).pack(side="right", padx=20)
+        ctk.CTkButton(btn_frame, text="Cancel", font=FONT_INTERFACE, fg_color="gray", hover_color="#555555", width=100, height=35, command=self.destroy).pack(side="right")
+
+        self.wait_window(self)
 
     def apply(self):
         self.result = (self.email_entry.get().strip(), self.token_entry.get().strip())
+        self.destroy()
 
+
+# ==============================================================================
+# MAIN APPLICATION ENGINE WITH SETUP WIZARD
+# ==============================================================================
 
 class WebmailApp:
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Webmail Alt")
-        self.root.geometry("1500x900")
-        self.dark_mode = True
+        self.root = ctk.CTk()
+        self.root.title("Webmail Alt Pro")
+        self.root.geometry("1550x950")
+        self.root.minsize(1150, 750)
 
         icon_path = resource_path("icon.ico")
         if os.path.exists(icon_path):        
-            icon = tk.PhotoImage(icon_path)
-            self.root.iconphoto(True, icon)
-        else: 
-            print(f"Error: Icon not found at {icon_path}")
+            try: self.root.iconbitmap(icon_path)
+            except Exception: pass
 
         self.backend = MailBackend()
         self.current_emails = []
         self.selected_mailbox = ""
         self.current_email = None
-
-        # Thread scheduler execution pooling engine
         self.executor = ThreadPoolExecutor(max_workers=2)
 
-        if HAS_THEME:
-            sv_ttk.set_theme("dark")
+        # Check if setup config exists natively
+        has_config = self.backend.load_credentials()
 
-        self.build_toolbar()
-        self.build_statusbar()
-        self.build_main_area()
-        
+        if not has_config or not self.backend.token:
+            # First time user routing sequence -> Show Setup Screen
+            self.build_setup_screen()
+        else:
+            # Config found -> Go straight to client
+            self.initialize_main_client_ui()
 
-        # Start asynchronous non-blocking boot sequence
-        self.start_async_task(self.initialize_mail_session)
-
-    # --------------------------------------------------------------------------
-    # THREADING MANAGEMENT HOOKS
-    # --------------------------------------------------------------------------
     def start_async_task(self, target_func, *args):
-        """Dispatches tasks to the background thread pool so the UI never freezes."""
         self.executor.submit(target_func, *args)
 
     def safe_ui_update(self, update_func, *args):
-        """Schedules safe graphical updates back to the main GUI thread loop."""
         self.root.after(0, update_func, *args)
 
     # --------------------------------------------------------------------------
-    # CORE INTERACTIVE LOGIC PIPELINES
+    # FIRST TIME SETUP SCREEN LAYOUT
     # --------------------------------------------------------------------------
-    def initialize_mail_session(self):
-        if not self.backend.token:
-            self.safe_ui_update(self.set_status, "Awaiting credentials initialization. Open Settings.")
-            self.safe_ui_update(self.prompt_credentials_setup)
+    def build_setup_screen(self):
+        """Creates a modern center-aligned configuration welcome screen wrapper."""
+        # Pass width and height right here inside the constructor
+        self.setup_frame = ctk.CTkFrame(
+            self.root, 
+            width=550, 
+            height=450, 
+            corner_radius=24, 
+            fg_color=("#F5F5F5", "#1E1E1E")
+        )
+        # Keep .place() clean of explicit width/height parameters
+        self.setup_frame.place(relx=0.5, rely=0.5, anchor="center")
+        # Decorative/Welcome Header Elements
+        lbl_welcome = ctk.CTkLabel(self.setup_frame, text="Welcome to Webmail Alt", font=(FONT_FAMILY, 24, "bold"))
+        lbl_welcome.pack(pady=(40, 5))
+        
+        lbl_hint = ctk.CTkLabel(self.setup_frame, text="Please complete initialization setup to link your environment.", font=(FONT_FAMILY, 12), text_color="gray")
+        lbl_hint.pack(pady=(0, 30))
+
+        # Forms Containers Block
+        form_container = ctk.CTkFrame(self.setup_frame, fg_color="transparent")
+        form_container.pack(fill="x", padx=40)
+
+        ctk.CTkLabel(form_container, text="IITB Email Address", font=(FONT_FAMILY, 12, "bold"), text_color=("#333333", "#AAAAAA")).pack(anchor="w", pady=(5, 2))
+        self.setup_email = ctk.CTkEntry(form_container, height=40, placeholder_text="e.g., rollnumber@iitb.ac.in", font=FONT_INTERFACE)
+        self.setup_email.pack(fill="x", pady=(0, 15))
+
+        ctk.CTkLabel(form_container, text="SSO Access Token", font=(FONT_FAMILY, 12, "bold"), text_color=("#333333", "#AAAAAA")).pack(anchor="w", pady=(5, 2))
+        self.setup_token = ctk.CTkEntry(form_container, height=40, show="*", placeholder_text="Paste your secure SSO verification string", font=FONT_INTERFACE)
+        self.setup_token.pack(fill="x", pady=(0, 25))
+
+        self.btn_finish_setup = ctk.CTkButton(self.setup_frame, text="Complete Installation →", height=45, font=(FONT_FAMILY, 13, "bold"), command=self.process_initial_setup)
+        self.btn_finish_setup.pack(fill="x", padx=40, pady=10)
+
+    def process_initial_setup(self):
+        email = self.setup_email.get().strip()
+        token = self.setup_token.get().strip()
+
+        if not email or not token:
+            self.setup_email.configure(border_color="red")
+            self.setup_token.configure(border_color="red")
             return
 
+        # Save setup parameters cleanly
+        self.backend.save_credentials(email, token)
+
+        # Smooth transition effect: Destroy onboarding overlay & instantiate system vectors
+        self.setup_frame.destroy()
+        
+        # Staging structural UI grids
+        self.initialize_main_client_ui()
+
+    # --------------------------------------------------------------------------
+    # CORE INTERFACE INITIALIZATION
+    # --------------------------------------------------------------------------
+    def initialize_main_client_ui(self):
+        """Assembles standard core multi-pane dynamic workspace layout view grid models."""
+        self.root.grid_columnconfigure(0, weight=1) 
+        self.root.grid_columnconfigure(1, weight=3) 
+        self.root.grid_columnconfigure(2, weight=5) 
+        self.root.grid_rowconfigure(1, weight=1)    
+
+        self.build_toolbar()
+        self.build_sidebar()
+        self.build_email_list()
+        self.build_email_viewer()
+        self.build_statusbar()
+
+        # Connect session directly
+        self.start_async_task(self.initialize_mail_session)
+
+    def initialize_mail_session(self):
         self.safe_ui_update(self.set_status, "Asynchronously linking connection paths...")
         success, info = self.backend.connect()
         
@@ -120,51 +227,58 @@ class WebmailApp:
         else:
             self.safe_ui_update(self.set_status, f"Authentication Refused: {info}")
 
-    def prompt_credentials_setup(self):
-        dialog = SettingsDialog(self.root, "Authentication Settings", self.backend.email_address, self.backend.token)
-        if dialog.result:
-            email, token = dialog.result
-            if email and token:
-                self.backend.save_credentials(email, token)
-                self.start_async_task(self.initialize_mail_session)
-
     def update_sidebar_list(self, folders):
-        self.mailbox_list.delete(0, "end")
+        for widget in self.scrollable_sidebar.winfo_children():
+            widget.destroy()
+
         for box in folders:
-            self.mailbox_list.insert("end", box)
+            btn = ctk.CTkButton(
+                self.scrollable_sidebar, 
+                text=f"📁   {box}", 
+                anchor="w", 
+                font=FONT_INTERFACE,
+                height=38,
+                fg_color="transparent", 
+                text_color=("black", "white"),
+                hover_color=("#E0E0E0", "#2B2B2B"),
+                command=lambda name=box: self.on_mailbox_selected(name)
+            )
+            btn.pack(fill="x", pady=3, padx=8)
         self.set_status("Ready.")
 
-    def on_mailbox_selected(self, event):
-        selection = self.mailbox_list.curselection()
-        if not selection: return
-        
-        self.selected_mailbox = self.mailbox_list.get(selection[0])
+    def on_mailbox_selected(self, mailbox_name):
+        self.selected_mailbox = mailbox_name
         self.set_status(f"Fetching updates from '{self.selected_mailbox}' headers table...")
-        
-        # Dispatch fetch to background thread
         self.start_async_task(self._bg_load_mailbox, self.selected_mailbox)
 
     def _bg_load_mailbox(self, mailbox_name):
-        # High speed fetch: handles headers only!
         self.current_emails = self.backend.fetch_latest_headers(mailbox_name, limit=30)
         self.safe_ui_update(self._ui_render_email_tree, mailbox_name)
 
     def _ui_render_email_tree(self, mailbox_name):
-        for item in self.email_tree.get_children():
-            self.email_tree.delete(item)
+        for widget in self.scrollable_tree.winfo_children():
+            widget.destroy()
             
         for idx, email in enumerate(self.current_emails):
-            self.email_tree.insert("", "end", iid=str(idx), values=(email.sender, email.subject, email.date))
+            mail_card = ctk.CTkFrame(self.scrollable_tree, fg_color=("#F5F5F5", "#202020"), corner_radius=8)
+            mail_card.pack(fill="x", pady=6, padx=8)
             
-        self.set_status(f"Loaded summary index fields for {len(self.current_emails)} records inside '{mailbox_name}'.")
+            lbl_from = ctk.CTkLabel(mail_card, text=email.sender, font=(FONT_FAMILY, 13, "bold"), anchor="w")
+            lbl_from.pack(fill="x", padx=12, pady=(8, 2))
+            
+            lbl_sub = ctk.CTkLabel(mail_card, text=email.subject, font=(FONT_FAMILY, 13), anchor="w", wraplength=300)
+            lbl_sub.pack(fill="x", padx=12, pady=2)
+            
+            lbl_date = ctk.CTkLabel(mail_card, text=email.date, font=(FONT_FAMILY, 11), text_color="gray", anchor="e")
+            lbl_date.pack(fill="x", padx=12, pady=(2, 8))
 
-    def on_email_selected(self, event):
-        selection = self.email_tree.selection()
-        if not selection: return
-        
-        index = int(selection[0])
+            for component in (mail_card, lbl_from, lbl_sub, lbl_date):
+                component.bind("<Button-1>", lambda event, i=idx: self.on_email_selected(i))
+                
+        self.set_status(f"Loaded {len(self.current_emails)} records inside '{mailbox_name}'.")
+
+    def on_email_selected(self, index):
         email = self.current_emails[index]
-        
         if not email.loaded:
             self.set_status("Streaming email body segments from IMAP host source...")
             self.start_async_task(self._bg_load_full_body, index)
@@ -178,230 +292,181 @@ class WebmailApp:
         self.safe_ui_update(self._ui_display_email_body, updated_email)
 
     def _ui_display_email_body(self, email):
-        self.subject_label.config(text=email.subject)
-        self.from_label.config(text=f"From: {email.sender}")
-        self.date_label.config(text=f"Date: {email.date}")
+        self.subject_label.configure(text=email.subject)
+        self.from_label.configure(text=f"From: {email.sender}")
+        self.date_label.configure(text=f"Date: {email.date}")
 
         self.current_email = email
+        is_dark = (ctk.get_appearance_mode() == "Dark")
 
-        
-        # Determine the best rendering payload
         if hasattr(email, 'html_body') and email.html_body:
             render_content = email.html_body
         elif hasattr(email, 'text_body') and email.text_body:
-            # Clean text format and render inside plain text styles within the HTML frame
-            # sanitized = email.text_body.replace("\r\n", "\n").replace("\r", "\n")
-            render_content = f"<html><body><pre style='font-family: sans-serif; white-space: pre-wrap;'>{html.escape(email.text_body)}</pre></body></html>"
+            render_content = f"<html><body><pre style='font-family: sans-serif; font-size: 14px; white-space: pre-wrap;'>{html.escape(email.text_body)}</pre></body></html>"
         else:
-            render_content = "<html><body><p style='color: gray; font-style: italic;'>No displayable payload variants found.</p></body></html>"
+            render_content = "<html><body><p style='color: gray; font-style: italic; font-size: 14px;'>No displayable payload variants found.</p></body></html>"
         
-        # Load content into the TkinterWeb structural HTML pane
-
-        themed_content = self.parse_and_thematize_html(render_content, self.dark_mode)
+        themed_content = self.parse_and_thematize_html(render_content, is_dark)
 
         try:
             self.body.load_html(themed_content)
         except AttributeError:
             self.body.set_html(themed_content)
             
+        self.animate_view_reveal()
         self.set_status("Done.")
 
+    def animate_view_reveal(self):
+        self.html_container.configure(fg_color=("#EAEAEA", "#252525"))
+        def reset_bg():
+            self.html_container.configure(fg_color="transparent")
+        self.root.after(120, reset_bg)
 
     def parse_and_thematize_html(self, html_content, is_dark_mode):
-        """
-        Sanitizes and wraps an HTML body with programmatic theme-overriding 
-        CSS directives without destroying explicit tabular structures.
-        """
-        if not html_content:
-            return ""
-            
-        # Standard CSS Variables mapping for UI parity
-        bg_color = "#1e1e1e" if is_dark_mode else "#ffffff"
+        if not html_content: return ""
+        bg_color = "#1a1a1a" if is_dark_mode else "#ffffff"
         text_color = "#f5f5f5" if is_dark_mode else "#1a1a1a"
         accent_link = "#4a9eff" if is_dark_mode else "#0066cc"
         
-        # CSS Injected Reset Rule Block
         theme_css = f"""
         <style>
-            /* Force structural base colors */
             html, body, table, td, div, span, p {{
                 background-color: {bg_color} !important;
                 color: {text_color} !important;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                font-size: 15px;
+                line-height: 1.6;
             }}
-            
-            /* Ensure links remain visible and high-contrast */
             a {{
                 color: {accent_link} !important;
                 text-decoration: underline !important;
             }}
-            
-            /* Prevent nested images from acting like flashbangs */
             img, video {{
                 opacity: { '0.85' if is_dark_mode else '1.0' } !important;
                 filter: { 'brightness(0.8) contrast(1.1)' if is_dark_mode else 'none' } !important;
             }}
-            
-            /* Keep formatted plain text structures aligned */
             pre {{
                 background-color: { '#2d2d2d' if is_dark_mode else '#f4f4f4' } !important;
                 color: {text_color} !important;
-                padding: 10px;
-                border-radius: 4px;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
                 white-space: pre-wrap;
             }}
         </style>
         """
-        
-        # If the email lacks structural wrapper tags, supply a baseline layout
         if "<body" not in html_content.lower():
             html_content = f"<html><body>{html_content}</body></html>"
             
-        # Dynamically inject our style payload directly behind the body open tag
-        # to override inline presentation declarations down the DOM tree tree structure.
         body_idx = html_content.lower().find("<body")
         if body_idx != -1:
-            # Find the end of the opening body tag (handling arbitrary element attributes)
             closing_bracket_idx = html_content.find(">", body_idx)
             if closing_bracket_idx != -1:
                 return html_content[:closing_bracket_idx+1] + theme_css + html_content[closing_bracket_idx+1:]
                 
         return theme_css + html_content
-    def get_blank_themed_page(self, is_dark_mode):
-        bg_color = "#1e1e1e" if is_dark_mode else "#ffffff"
-        text_color = "#f5f5f5" if is_dark_mode else "#1a1a1a"
 
-        return f"""
-        <html>
-        <head>
-            <style>
-                html, body {{
-                    margin: 0;
-                    padding: 0;
-                    width: 100%;
-                    height: 100%;
-                    background-color: {bg_color};
-                    color: {text_color};
-                    overflow: hidden;
-                }}
-            </style>
-        </head>
-        <body>
-        </body>
-        </html>
-        """
+    def get_blank_themed_page(self, is_dark_mode):
+        bg_color = "#1a1a1a" if is_dark_mode else "#ffffff"
+        text_color = "#f5f5f5" if is_dark_mode else "#1a1a1a"
+        return f"<html><head><style>html,body{{margin:0;padding:0;background-color:{bg_color};color:{text_color};overflow:hidden;}}</style></head><body></body></html>"
+
+    def prompt_credentials_setup(self):
+        dialog = SettingsDialog(self.root, "Authentication Settings", self.backend.email_address, self.backend.token)
+        if dialog.result:
+            email, token = dialog.result
+            if email and token:
+                self.backend.save_credentials(email, token)
+                self.start_async_task(self.initialize_mail_session)
+
     # --------------------------------------------------------------------------
-    # WINDOW ASSEMBLY METHOD WRAPPERS
+    # LAYOUT STAGING PANE BUILDERS
     # --------------------------------------------------------------------------
     def build_toolbar(self):
-        self.toolbar = ttk.Frame(self.root, padding=8)
-        self.toolbar.pack(fill="x")
+        self.toolbar = ctk.CTkFrame(self.root, height=60, corner_radius=0)
+        self.toolbar.grid(row=0, column=0, columnspan=3, sticky="nsew", padx=0, pady=(0, 2))
+        
+        btn_refresh = ctk.CTkButton(self.toolbar, text="🔄  Refresh", font=FONT_INTERFACE, width=120, height=38, command=lambda: self.start_async_task(self._bg_load_mailbox, self.selected_mailbox) if self.selected_mailbox else None)
+        btn_refresh.pack(side="left", padx=15, pady=10)
+        
+        btn_settings = ctk.CTkButton(self.toolbar, text="⚙  Settings", font=FONT_INTERFACE, width=120, height=38, fg_color=("#DBDBDB", "#2B2B2B"), text_color=("black", "white"), hover_color=("#CDCDCD", "#3A3A3A"), command=self.prompt_credentials_setup)
+        btn_settings.pack(side="left", padx=5, pady=10)
 
-        ttk.Button(self.toolbar, text="Refresh", command=lambda: self.start_async_task(self._bg_load_mailbox, self.selected_mailbox) if self.selected_mailbox else None).pack(side="left", padx=2)
-        ttk.Button(self.toolbar, text="Settings ⚙", command=self.prompt_credentials_setup).pack(side="left", padx=2)
+        self.theme_btn = ctk.CTkButton(self.toolbar, text="🌙  Dark Mode", font=FONT_INTERFACE, width=110, height=38, command=self.toggle_theme)
+        self.theme_btn.pack(side="right", padx=15, pady=10)
 
-        self.search_entry = ttk.Entry(self.toolbar, width=40)
-        self.search_entry.pack(side="right", padx=10)
-
-        self.theme_btn = ttk.Button(self.toolbar, text="🌙", command=self.toggle_theme)
-        self.theme_btn.pack(side="right")
-        ttk.Separator(self.root).pack(fill="x")
-
-    def build_main_area(self):
-        self.main = ttk.PanedWindow(self.root, orient="horizontal")
-        self.main.pack(fill="both", expand=False)
-        self.build_sidebar()
-        self.build_content_area()
+        self.search_entry = ctk.CTkEntry(self.toolbar, width=320, height=38, font=FONT_INTERFACE, placeholder_text="Search mail entries...")
+        self.search_entry.pack(side="right", padx=10, pady=10)
 
     def build_sidebar(self):
-        self.sidebar = ttk.Frame(self.main)
-        ttk.Label(self.sidebar, text="MAILBOXES", font=("Noto Sans", 10, "bold")).pack(anchor="w", padx=10, pady=10)
-
-        self.mailbox_list = tk.Listbox(self.sidebar, activestyle="none", selectmode="single")
-        self.mailbox_list.pack(fill="both", expand=True, padx=5, pady=5)
-        self.mailbox_list.bind("<<ListboxSelect>>", self.on_mailbox_selected)
-
-        self.main.add(self.sidebar, weight=1)
-
-    def build_content_area(self):
-        self.content = ttk.PanedWindow(self.main, orient="vertical")
-        self.main.add(self.content, weight=5)
-        self.build_email_list()
-        self.build_email_viewer()
+        self.sidebar_frame = ctk.CTkFrame(self.root, corner_radius=0)
+        self.sidebar_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 2))
+        
+        lbl = ctk.CTkLabel(self.sidebar_frame, text="MAILBOXES", font=FONT_HEADER, text_color="gray")
+        lbl.pack(anchor="w", padx=18, pady=(18, 8))
+        
+        self.scrollable_sidebar = ctk.CTkScrollableFrame(self.sidebar_frame, fg_color="transparent")
+        self.scrollable_sidebar.pack(fill="both", expand=True, padx=5, pady=5)
 
     def build_email_list(self):
-        self.email_frame = ttk.Frame(self.content)
-        columns = ("from", "subject", "date")
+        self.list_frame = ctk.CTkFrame(self.root, corner_radius=0)
+        self.list_frame.grid(row=1, column=1, sticky="nsew", padx=(0, 2))
         
-        self.email_tree = ttk.Treeview(self.email_frame, columns=columns, show="headings")
-        self.email_tree.heading("from", text="From")
-        self.email_tree.heading("subject", text="Subject")
-        self.email_tree.heading("date", text="Date")
-        
-        self.email_tree.column("from", width=220)
-        self.email_tree.column("subject", width=600)
-        self.email_tree.column("date", width=180)
-        
-        self.email_tree.bind("<<TreeviewSelect>>", self.on_email_selected)
-        self.email_tree.pack(fill="both", expand=True)
-        self.content.add(self.email_frame, weight=2)
+        lbl = ctk.CTkLabel(self.list_frame, text="MESSAGES INDEX", font=FONT_HEADER, text_color="gray")
+        lbl.pack(anchor="w", padx=18, pady=(18, 8))
+
+        self.scrollable_tree = ctk.CTkScrollableFrame(self.list_frame, fg_color="transparent")
+        self.scrollable_tree.pack(fill="both", expand=True, padx=5, pady=5)
 
     def build_email_viewer(self):
-        self.viewer_frame = ttk.Frame(self.content)
-        self.subject_label = ttk.Label(self.viewer_frame, text="", font=("Noto Sans", 14, "bold"))
-        self.subject_label.pack(anchor="w", padx=15, pady=(15, 2))
-
-        self.from_label = ttk.Label(self.viewer_frame, text="", font=("Noto Sans", 10, "italic"))
-        self.from_label.pack(anchor="w", padx=15, pady=2)
-
-        self.date_label = ttk.Label(self.viewer_frame, text="", font=("Noto Sans", 9))
-        self.date_label.pack(anchor="w", padx=15, pady=(0, 10))
-
-        ttk.Separator(self.viewer_frame).pack(fill="x", padx=15)
-
-        self.body = HtmlFrame(
-            self.viewer_frame,
-            messages_enabled=False,
-            
-        )
+        self.viewer_frame = ctk.CTkFrame(self.root, corner_radius=0, fg_color=("#FFFFFF", "#1A1A1A"))
+        self.viewer_frame.grid(row=1, column=2, sticky="nsew")
         
-        
+        self.subject_label = ctk.CTkLabel(self.viewer_frame, text="No message selected", font=FONT_TITLE, anchor="w", wraplength=650)
+        self.subject_label.pack(fill="x", padx=25, pady=(25, 4))
 
-        self.body.pack(fill="both", expand=True, padx=15, pady=15)
-        self.body.load_html(
-            self.get_blank_themed_page(self.dark_mode)
-        )
-        self.content.add(self.viewer_frame, weight=3)
+        self.from_label = ctk.CTkLabel(self.viewer_frame, text="", font=FONT_SUBTITLE, text_color="gray", anchor="w")
+        self.from_label.pack(fill="x", padx=25, pady=2)
+
+        self.date_label = ctk.CTkLabel(self.viewer_frame, text="", font=(FONT_FAMILY, 12), text_color="gray", anchor="w")
+        self.date_label.pack(fill="x", padx=25, pady=(0, 20))
+
+        self.html_container = ctk.CTkFrame(self.viewer_frame, fg_color="transparent", corner_radius=12)
+        self.html_container.pack(fill="both", expand=True, padx=20, pady=20)
+
+        self.body = HtmlFrame(self.html_container, messages_enabled=False)
+        self.body.pack(fill="both", expand=True, padx=2, pady=2)
+        self.body.load_html(self.get_blank_themed_page(ctk.get_appearance_mode() == "Dark"))
 
     def build_statusbar(self):
-        self.status = ttk.Label(self.root, text="Ready.", anchor="w", padding=4)
-        self.status.pack(side="bottom", fill="x")
+        self.status_bar = ctk.CTkFrame(self.root, height=28, corner_radius=0)
+        self.status_bar.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(2, 0))
+        
+        self.status = ctk.CTkLabel(self.status_bar, text="Status: Ready.", font=(FONT_FAMILY, 12), text_color="gray")
+        self.status.pack(side="left", padx=15, pady=3)
 
     def set_status(self, message):
-        self.status.config(text="Status: " +message)
+        self.status.configure(text="Status: " + message)
 
     def toggle_theme(self):
-        if not HAS_THEME: return
-        self.dark_mode = not self.dark_mode
-        if self.dark_mode:
-            sv_ttk.set_theme("dark")
-            self.theme_btn.config(text="🌙")
+        if ctk.get_appearance_mode() == "Dark":
+            ctk.set_appearance_mode("Light")
+            self.theme_btn.configure(text="☀  Light Mode")
         else:
-            sv_ttk.set_theme("light")
-            self.theme_btn.config(text="☀")
+            ctk.set_appearance_mode("Dark")
+            self.theme_btn.configure(text="🌙  Dark Mode")
+            
         if self.current_email:
             self._ui_display_email_body(self.current_email)
-        # if no email is there
-        if not self.subject_label["text"]:
-            self.body.load_html(
-                self.get_blank_themed_page(self.dark_mode)
-            )
+        else:
+            self.body.load_html(self.get_blank_themed_page(ctk.get_appearance_mode() == "Dark"))
 
     def run(self):
         try:
             self.root.mainloop()
         finally:
             self.executor.shutdown(wait=False)
-            if self.backend.mail:
+            if hasattr(self.backend, 'mail') and self.backend.mail:
                 try: self.backend.mail.logout()
                 except: pass
 

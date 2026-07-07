@@ -1,21 +1,34 @@
 import os
-import json
+import sys
 from email import message_from_bytes
 from email import policy
 from email.parser import BytesParser
 import imaplib
-from email import policy
-from email.parser import BytesParser, HeaderParser
+from email.parser import HeaderParser
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from email.header import decode_header
 import ssl
 import sqlite3
 
-
-
-
-CONFIG_FILE = "webmail_config.json"
+def get_system_storage_path(db_name="db.db"):
+    """
+    Creates a dedicated, isolated app data folder inside the user's system profile
+    ensuring persistent data remains detached from volatile temp folders or user desktops.
+    """
+    if sys.platform == "win32":
+        # Windows Path: C:\Users\<Name>\AppData\Roaming\IITBWebmailAlt
+        base_dir = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "IITBWebmailAlt")
+    elif sys.platform == "darwin":
+        # macOS Path: /Users/<Name>/Library/Application Support/IITBWebmailAlt
+        base_dir = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "IITBWebmailAlt")
+    else:
+        # Linux Path: /home/<Name>/.local/share/IITBWebmailAlt
+        base_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "IITBWebmailAlt")
+    
+    # Ensure system directories exist before sqlite initialization attempts execution
+    os.makedirs(base_dir, exist_ok=True)
+    return os.path.join(base_dir, db_name)
 
 
 def clean_from_field(raw_from):
@@ -32,7 +45,6 @@ def clean_header(raw_header):
     if not raw_header:
         return ""
     try:
-        from email.header import decode_header
         decoded_parts = decode_header(raw_header)
         header_text = ""
         for bytes_or_str, encoding in decoded_parts:
@@ -47,7 +59,7 @@ def clean_header(raw_header):
 class Email:
     def __init__(self, msg_id, sender="", recipients=None, subject="", date="", 
                  text_body=None, html_body=None, attachments=None, loaded=False):
-        self.msg_id = msg_id  # Keep track of server side ID for late-binding loads
+        self.msg_id = msg_id  
         self.sender = sender
         self.recipients = recipients or []
         self.subject = subject
@@ -70,15 +82,16 @@ class MailBackend:
         self.connectDB()
         self.load_credentials()
 
-        
-        
     def connectDB(self):  
-        self.con = sqlite3.connect("db.db", check_same_thread=False)
+        # Safely resolve standard application system path properties mapping
+        import sys
+        db_path = get_system_storage_path("db.db")
+        
+        self.con = sqlite3.connect(db_path, check_same_thread=False)
         self.cur = self.con.cursor()
         self.cur.execute("CREATE TABLE IF NOT EXISTS config(email TEXT, sso_token TEXT)")
         self.cur.execute("CREATE TABLE IF NOT EXISTS emails(id TEXT, subject TEXT)")
         self.con.commit()
-
 
     def load_credentials(self):
         """Loads client connection profiles without local shell variables."""
@@ -88,17 +101,17 @@ class MailBackend:
             if row:
                 self.email_address = row[0]
                 self.token = row[1]
+                return True
             else:
                 self.email_address = ""
                 self.token = ""
         except Exception as e:
             self.email_address = ""
             self.token = ""
+        return False
 
-
-    
     def save_credentials(self, email, token):
-        """Saves current properties profile safely down into JSON structure."""
+        """Saves current properties profile safely down into local SQLite context structure."""
         self.email_address = email
         self.token = token
 
@@ -108,8 +121,6 @@ class MailBackend:
             self.con.commit()
         except Exception as e:
             pass
-
-
 
     def connect(self):
         if not self.token:
@@ -138,6 +149,7 @@ class MailBackend:
                 parts = box.decode().split()
                 box_name = parts[-1].strip('"')
                 cleaned_boxes.append(box_name)
+                
             return cleaned_boxes
         except:
             return []
@@ -157,7 +169,6 @@ class MailBackend:
             header_parser = HeaderParser()
 
             for msg_id in target_ids:
-                # OPTIMIZATION: Request ONLY fundamental tracking values (saves bandwidth/time)
                 status, msg_data = self.mail.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
                 if status != "OK": continue
                 
@@ -172,7 +183,7 @@ class MailBackend:
                     sender=clean_from_field(raw_from),
                     subject=clean_header(raw_subject),
                     date=parsed_hdrs.get("Date", ""),
-                    loaded=False  # Postpone downloading the body text until clicked
+                    loaded=False  
                 ))
             return emails
         except Exception as e:
@@ -212,9 +223,5 @@ class MailBackend:
             print(f"Full body fetch failed: {e}")
             return email_obj
         
-    # Get all of email IDs, and the Headings, and store it to our database
-    def populateDB():
+    def populateDB(self):
         pass
-
-
-
