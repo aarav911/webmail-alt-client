@@ -10,6 +10,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from email.header import decode_header
 import ssl
+import sqlite3
+
 
 
 
@@ -63,30 +65,51 @@ class MailBackend:
         self.mail = None
         self.email_address = ""
         self.token = ""
+        self.con = None
+        self.cur = None
+        self.connectDB()
         self.load_credentials()
+
         
+        
+    def connectDB(self):  
+        self.con = sqlite3.connect("db.db", check_same_thread=False)
+        self.cur = self.con.cursor()
+        self.cur.execute("CREATE TABLE IF NOT EXISTS config(email TEXT, sso_token TEXT)")
+        self.cur.execute("CREATE TABLE IF NOT EXISTS emails(id TEXT, subject TEXT)")
+        self.con.commit()
+
 
     def load_credentials(self):
         """Loads client connection profiles without local shell variables."""
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, "r") as f:
-                    data = json.load(f)
-                    self.email_address = data.get("email", "24b2177@iitb.ac.in")
-                    self.token = data.get("sso_token", "")
-                    return
-            except Exception as e:
-                print(f"Failed parsing local config: {e}")
-        
-        self.email_address = "24b2177@iitb.ac.in"
-        self.token = ""
+        try:
+            self.cur.execute("SELECT email, sso_token FROM config LIMIT 1")
+            row = self.cur.fetchone()
+            if row:
+                self.email_address = row[0]
+                self.token = row[1]
+            else:
+                self.email_address = ""
+                self.token = ""
+        except Exception as e:
+            self.email_address = ""
+            self.token = ""
 
+
+    
     def save_credentials(self, email, token):
         """Saves current properties profile safely down into JSON structure."""
         self.email_address = email
         self.token = token
-        with open(CONFIG_FILE, "w") as f:
-            json.dump({"email": email, "sso_token": token}, f, indent=4)
+
+        try:
+            self.cur.execute("DELETE FROM config")
+            self.cur.execute("INSERT INTO config (email, sso_token) VALUES (?, ?)", (self.email_address, self.token))
+            self.con.commit()
+        except Exception as e:
+            pass
+
+
 
     def connect(self):
         if not self.token:
@@ -188,5 +211,10 @@ class MailBackend:
         except Exception as e:
             print(f"Full body fetch failed: {e}")
             return email_obj
+        
+    # Get all of email IDs, and the Headings, and store it to our database
+    def populateDB():
+        pass
+
 
 

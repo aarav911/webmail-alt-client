@@ -22,3 +22,12 @@ Get the latest Windows executable here:
 *Requires Windows 10/11. No installation needed.*   
 
 Note: You will need to put in your SSO TOKEN to login. [Get your SSO token following these steps.](https://www.cc.iitb.ac.in/attachments/ssoat/stepToReplacLDAPp-wWithSSOATforEmailClient.pdf)
+
+
+---
+### Feature plan: 
+In order of completion:
+1. Wizard setup and in-app update
+2. database caching and search
+3. Pagination
+4. background windows script notifications. 

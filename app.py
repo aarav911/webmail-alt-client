@@ -83,8 +83,9 @@ class WebmailApp:
             sv_ttk.set_theme("dark")
 
         self.build_toolbar()
-        self.build_main_area()
         self.build_statusbar()
+        self.build_main_area()
+        
 
         # Start asynchronous non-blocking boot sequence
         self.start_async_task(self.initialize_mail_session)
@@ -307,7 +308,7 @@ class WebmailApp:
 
     def build_main_area(self):
         self.main = ttk.PanedWindow(self.root, orient="horizontal")
-        self.main.pack(fill="both", expand=True)
+        self.main.pack(fill="both", expand=False)
         self.build_sidebar()
         self.build_content_area()
 
@@ -373,10 +374,10 @@ class WebmailApp:
 
     def build_statusbar(self):
         self.status = ttk.Label(self.root, text="Ready.", anchor="w", padding=4)
-        self.status.pack(fill="x")
+        self.status.pack(side="bottom", fill="x")
 
     def set_status(self, message):
-        self.status.config(text=message)
+        self.status.config(text="Status: " +message)
 
     def toggle_theme(self):
         if not HAS_THEME: return

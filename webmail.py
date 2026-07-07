@@ -89,6 +89,8 @@ def connect():
         print("Logging in...")
 
         status, data = mail.login(EMAIL, TOKEN)
+        ids = data[0].split()
+        print(ids)
 
         print("Login status:", status)
         print("Response:", data)
