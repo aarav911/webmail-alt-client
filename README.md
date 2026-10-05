@@ -7,7 +7,7 @@ I do have some interesting ideas that i want to implement.
 2. ML classicification for predicting whether an email is important for me or not. 
 
 
-Right now the only way to access the client is by cloning this repo, making the venv (uv recommended), pip installing everything needed, and running the app.py
+Right now the only way to access the client is by cloning this repo, making the venv (uv recommended), pip installing everything needed, and running `bash run.sh`. The script launches the current `app.py` source using the project venv when available, rather than an older executable in `dist/`.
 
 
 Here is a screenshot of version, say 0.0.1
@@ -35,4 +35,14 @@ In order of completion:
 1. Wizard setup and in-app update
 2. database caching and search
 3. Pagination
-4. background windows script notifications. 
+4. background windows script notifications.
+
+### Manual email-importance labels
+
+Use **Mark Important** or **Mark Not Important** in the message viewer to add a
+training example. Each click appends one JSON Lines record to
+`imp_classification_model/manual_classification.jsonl` beside the app. Repeated
+labels of the same message are retained as separate examples. The `raw_email`
+field is Base64-encoded RFC822 data so the original server response can be
+recovered without losing any bytes. The generated dataset is ignored by Git
+because it contains private email content.

@@ -1,5 +1,8 @@
 import os
 import sys
+import base64
+import json
+from datetime import datetime, timezone
 from email import message_from_bytes
 from email import policy
 from email.parser import BytesParser
@@ -25,10 +28,22 @@ def get_system_storage_path(db_name="db.db"):
     else:
         # Linux Path: /home/<Name>/.local/share/IITBWebmailAlt
         base_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "IITBWebmailAlt")
-    
+
     # Ensure system directories exist before sqlite initialization attempts execution
     os.makedirs(base_dir, exist_ok=True)
     return os.path.join(base_dir, db_name)
+
+
+def get_classification_data_path():
+    """Returns the persistent manual-label dataset location beside the app."""
+    if getattr(sys, "frozen", False):
+        app_dir = os.path.dirname(sys.executable)
+    else:
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+
+    data_dir = os.path.join(app_dir, "imp_classification_model")
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "manual_classification.jsonl")
 
 
 def clean_from_field(raw_from):
@@ -58,7 +73,8 @@ def clean_header(raw_header):
 
 class Email:
     def __init__(self, msg_id, sender="", recipients=None, subject="", date="", 
-                 text_body=None, html_body=None, attachments=None, loaded=False):
+                 text_body=None, html_body=None, attachments=None, loaded=False,
+                 raw_email=None):
         self.msg_id = msg_id  
         self.sender = sender
         self.recipients = recipients or []
@@ -68,6 +84,7 @@ class Email:
         self.html_body = html_body
         self.attachments = attachments or []
         self.loaded = loaded
+        self.raw_email = raw_email
 
 
 class MailBackend:
@@ -75,6 +92,7 @@ class MailBackend:
         self.host = "imap.iitb.ac.in"
         self.port = 993
         self.mail = None
+        self.mail_lock = threading.RLock()
         self.email_address = ""
         self.token = ""
         self.con = None
@@ -123,105 +141,144 @@ class MailBackend:
             pass
 
     def connect(self):
-        if not self.token:
-            return False, "Missing Token"
-        try:
+        with self.mail_lock:
+            if not self.token:
+                return False, "Missing Token"
+            try:
+                if self.mail:
+                    try: self.mail.logout()
+                    except: pass
+                    self.mail = None
+                ctx = ssl.create_default_context()
+                ctx.set_ciphers('DEFAULT')
+                self.mail = imaplib.IMAP4_SSL(host=self.host, port=self.port, ssl_context=ctx)
+                status, data = self.mail.login(self.email_address, self.token)
+                if status == "OK":
+                    return True, "Success"
+                self.mail = None
+                return False, str(data)
+            except Exception as e:
+                self.mail = None
+                return False, str(e)
+
+    def disconnect(self):
+        with self.mail_lock:
             if self.mail:
-                try: self.mail.logout()
-                except: pass
-            ctx = ssl.create_default_context()
-            ctx.set_ciphers('DEFAULT')
-            self.mail = imaplib.IMAP4_SSL(host=self.host, port=self.port, ssl_context=ctx)
-            status, data = self.mail.login(self.email_address, self.token)
-            if status == "OK":
-                return True, "Success"
-            return False, str(data)
-        except Exception as e:
-            return False, str(e)
+                try:
+                    self.mail.logout()
+                finally:
+                    self.mail = None
 
     def get_mailboxes(self):
-        if not self.mail: return []
-        try:
-            status, mailboxes = self.mail.list()
-            if status != "OK": return []
-            cleaned_boxes = []
-            for box in mailboxes:
-                parts = box.decode().split()
-                box_name = parts[-1].strip('"')
-                cleaned_boxes.append(box_name)
-                
-            return cleaned_boxes
-        except:
-            return []
+        with self.mail_lock:
+            if not self.mail: return []
+            try:
+                status, mailboxes = self.mail.list()
+                if status != "OK": return []
+                cleaned_boxes = []
+                for box in mailboxes:
+                    parts = box.decode().split()
+                    box_name = parts[-1].strip('"')
+                    cleaned_boxes.append(box_name)
+
+                return cleaned_boxes
+            except:
+                return []
 
     def fetch_latest_headers(self, mailbox_name, limit=25):
         """Optimization: Only downloads minimal header metadata needed for layout mapping."""
-        if not self.mail: return []
-        try:
-            self.mail.select(mailbox_name, readonly=True)
-            status, data = self.mail.search(None, "ALL")
-            if status != "OK" or not data[0]: return []
+        with self.mail_lock:
+            if not self.mail: return []
+            try:
+                self.mail.select(mailbox_name, readonly=True)
+                status, data = self.mail.search(None, "ALL")
+                if status != "OK" or not data[0]: return []
 
-            message_ids = data[0].split()
-            target_ids = message_ids[-1:-(limit + 1):-1]
-            
-            emails = []
-            header_parser = HeaderParser()
+                message_ids = data[0].split()
+                target_ids = message_ids[-1:-(limit + 1):-1]
 
-            for msg_id in target_ids:
-                status, msg_data = self.mail.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
-                if status != "OK": continue
-                
-                raw_headers = msg_data[0][1].decode(errors='replace')
-                parsed_hdrs = header_parser.parsestr(raw_headers)
+                emails = []
+                header_parser = HeaderParser()
 
-                raw_from = parsed_hdrs.get("From", "Unknown")
-                raw_subject = parsed_hdrs.get("Subject", "(No Subject)")
+                for msg_id in target_ids:
+                    status, msg_data = self.mail.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+                    if status != "OK": continue
 
-                emails.append(Email(
-                    msg_id=msg_id,
-                    sender=clean_from_field(raw_from),
-                    subject=clean_header(raw_subject),
-                    date=parsed_hdrs.get("Date", ""),
-                    loaded=False  
-                ))
-            return emails
-        except Exception as e:
-            print(f"Header fetch error: {e}")
-            return []
+                    raw_headers = msg_data[0][1].decode(errors='replace')
+                    parsed_hdrs = header_parser.parsestr(raw_headers)
+
+                    raw_from = parsed_hdrs.get("From", "Unknown")
+                    raw_subject = parsed_hdrs.get("Subject", "(No Subject)")
+
+                    emails.append(Email(
+                        msg_id=msg_id,
+                        sender=clean_from_field(raw_from),
+                        subject=clean_header(raw_subject),
+                        date=parsed_hdrs.get("Date", ""),
+                        loaded=False
+                    ))
+                return emails
+            except Exception as e:
+                print(f"Header fetch error: {e}")
+                return []
 
     def load_full_body(self, mailbox_name, email_obj):
         """Late-binding engine loading specific targeted message text parts dynamically."""
-        if not self.mail or email_obj.loaded: return email_obj
-        try:
-            self.mail.select(mailbox_name, readonly=True)
-            status, msg_data = self.mail.fetch(email_obj.msg_id, "(RFC822)")
-            if status != "OK": return email_obj
-            
-            raw_bytes = msg_data[0][1]
-            msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
-            
-            for part in msg.walk():
-                content_type = part.get_content_type()
-                disposition = str(part.get("Content-Disposition", ""))
-                if part.get_content_maintype() == "multipart": continue
+        with self.mail_lock:
+            if not self.mail or email_obj.loaded: return email_obj
+            try:
+                self.mail.select(mailbox_name, readonly=True)
+                status, msg_data = self.mail.fetch(email_obj.msg_id, "(RFC822)")
+                if status != "OK": return email_obj
 
-                if content_type == "text/plain" and "attachment" not in disposition:
-                    email_obj.text_body = part.get_content()
-                elif content_type == "text/html" and "attachment" not in disposition:
-                    email_obj.html_body = part.get_content()
-                elif "attachment" in disposition:
-                    filename = part.get_filename()
-                    if filename:
-                        email_obj.attachments.append({
-                            "filename": filename,
-                            "data": part.get_content()
-                        })
-            email_obj.loaded = True
-            return email_obj
-        except Exception as e:
-            print(f"Full body fetch failed: {e}")
-            return email_obj
+                raw_bytes = msg_data[0][1]
+                email_obj.raw_email = raw_bytes
+                msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+
+                for part in msg.walk():
+                    content_type = part.get_content_type()
+                    disposition = str(part.get("Content-Disposition", ""))
+                    if part.get_content_maintype() == "multipart": continue
+
+                    if content_type == "text/plain" and "attachment" not in disposition:
+                        email_obj.text_body = part.get_content()
+                    elif content_type == "text/html" and "attachment" not in disposition:
+                        email_obj.html_body = part.get_content()
+                    elif "attachment" in disposition:
+                        filename = part.get_filename()
+                        if filename:
+                            email_obj.attachments.append({
+                                "filename": filename,
+                                "data": part.get_content()
+                            })
+                email_obj.loaded = True
+                return email_obj
+            except Exception as e:
+                print(f"Full body fetch failed: {e}")
+                return email_obj
+
+    def record_classification(self, mailbox_name, email_obj, classification):
+        """Appends a label and the exact RFC822 message bytes to the JSONL dataset."""
+        if classification not in ("important", "not_important"):
+            raise ValueError(f"Unsupported email classification: {classification}")
+        if email_obj.raw_email is None:
+            raise ValueError("The raw email has not been loaded.")
+
+        message_id = email_obj.msg_id
+        if isinstance(message_id, bytes):
+            message_id = message_id.decode("ascii", errors="replace")
+
+        record = {
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "mailbox": mailbox_name,
+            "message_id": str(message_id),
+            "classification": classification,
+            "raw_email_encoding": "base64",
+            "raw_email": base64.b64encode(email_obj.raw_email).decode("ascii"),
+        }
+
+        with open(get_classification_data_path(), "a", encoding="utf-8") as dataset:
+            dataset.write(json.dumps(record, ensure_ascii=False) + "\n")
         
     def populateDB(self):
         pass

@@ -4,3 +4,4 @@
 webmail_config.json
 web
 deploy.txt
+/imp_classification_model/manual_classification.jsonl

@@ -3,6 +3,7 @@ import sys
 import html
 import json
 import tkinter as tk
+from tkinter import messagebox
 from email import policy
 from email.parser import BytesParser, HeaderParser
 from concurrent.futures import ThreadPoolExecutor
@@ -124,6 +125,8 @@ class WebmailApp:
         self.current_emails = []
         self.selected_mailbox = ""
         self.current_email = None
+        self.current_email_mailbox = ""
+        self.selected_email_key = None
         self.executor = ThreadPoolExecutor(max_workers=2)
 
         # Check if setup config exists natively
@@ -279,24 +282,34 @@ class WebmailApp:
 
     def on_email_selected(self, index):
         email = self.current_emails[index]
+        mailbox_name = self.selected_mailbox
+        self.selected_email_key = (mailbox_name, email.msg_id)
+        self.current_email = None
+        self._set_classification_controls_enabled(False)
         if not email.loaded:
             self.set_status("Streaming email body segments from IMAP host source...")
-            self.start_async_task(self._bg_load_full_body, index)
+            self.start_async_task(self._bg_load_full_body, mailbox_name, email)
         else:
-            self._ui_display_email_body(email)
+            self._ui_display_email_body(email, mailbox_name)
 
-    def _bg_load_full_body(self, index):
-        email = self.current_emails[index]
-        updated_email = self.backend.load_full_body(self.selected_mailbox, email)
-        self.current_emails[index] = updated_email
-        self.safe_ui_update(self._ui_display_email_body, updated_email)
+    def _bg_load_full_body(self, mailbox_name, email):
+        updated_email = self.backend.load_full_body(mailbox_name, email)
+        self.safe_ui_update(self._ui_display_email_body, updated_email, mailbox_name)
 
-    def _ui_display_email_body(self, email):
+    def _ui_display_email_body(self, email, mailbox_name=None):
+        if mailbox_name is not None and (
+            mailbox_name != self.selected_mailbox
+            or (mailbox_name, email.msg_id) != self.selected_email_key
+        ):
+            return
+
         self.subject_label.configure(text=email.subject)
         self.from_label.configure(text=f"From: {email.sender}")
         self.date_label.configure(text=f"Date: {email.date}")
 
         self.current_email = email
+        self.current_email_mailbox = mailbox_name or self.selected_mailbox
+        self._set_classification_controls_enabled(email.raw_email is not None)
         is_dark = (ctk.get_appearance_mode() == "Dark")
 
         if hasattr(email, 'html_body') and email.html_body:
@@ -315,6 +328,31 @@ class WebmailApp:
             
         self.animate_view_reveal()
         self.set_status("Done.")
+
+    def _set_classification_controls_enabled(self, enabled):
+        state = "normal" if enabled else "disabled"
+        self.important_button.configure(state=state)
+        self.not_important_button.configure(state=state)
+
+    def _record_email_classification(self, classification):
+        email = self.current_email
+        if email is None or email.raw_email is None:
+            return
+
+        try:
+            self.backend.record_classification(
+                self.current_email_mailbox, email, classification
+            )
+        except (OSError, ValueError) as error:
+            self.set_status(f"Could not save classification: {error}")
+            messagebox.showerror(
+                "Classification not saved",
+                f"The email label could not be saved:\n{error}",
+                parent=self.root,
+            )
+            return
+
+        self.set_status(f"Saved email as '{classification}'.")
 
     def animate_view_reveal(self):
         self.html_container.configure(fg_color=("#EAEAEA", "#252525"))
@@ -429,7 +467,30 @@ class WebmailApp:
         self.from_label.pack(fill="x", padx=25, pady=2)
 
         self.date_label = ctk.CTkLabel(self.viewer_frame, text="", font=(FONT_FAMILY, 12), text_color="gray", anchor="w")
-        self.date_label.pack(fill="x", padx=25, pady=(0, 20))
+        self.date_label.pack(fill="x", padx=25, pady=(0, 8))
+
+        self.classification_frame = ctk.CTkFrame(
+            self.viewer_frame, fg_color="transparent"
+        )
+        self.classification_frame.pack(fill="x", padx=20, pady=(0, 8))
+        self.important_button = ctk.CTkButton(
+            self.classification_frame,
+            text="Mark Important",
+            width=145,
+            command=lambda: self._record_email_classification("important"),
+            state="disabled",
+        )
+        self.important_button.pack(side="left", padx=5)
+        self.not_important_button = ctk.CTkButton(
+            self.classification_frame,
+            text="Mark Not Important",
+            width=160,
+            fg_color=("#777777", "#444444"),
+            hover_color=("#666666", "#555555"),
+            command=lambda: self._record_email_classification("not_important"),
+            state="disabled",
+        )
+        self.not_important_button.pack(side="left", padx=5)
 
         self.html_container = ctk.CTkFrame(self.viewer_frame, fg_color="transparent", corner_radius=12)
         self.html_container.pack(fill="both", expand=True, padx=20, pady=20)
@@ -467,7 +528,7 @@ class WebmailApp:
         finally:
             self.executor.shutdown(wait=False)
             if hasattr(self.backend, 'mail') and self.backend.mail:
-                try: self.backend.mail.logout()
+                try: self.backend.disconnect()
                 except: pass
 
 

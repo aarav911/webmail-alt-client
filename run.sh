@@ -77,8 +77,16 @@ main() {
     log_info "Script started successfully from: $SCRIPT_DIR"
     
     # --- Your Code Here ---
-    cd dist
-    ./Webmail
+    cd "$SCRIPT_DIR"
+    if [[ -x "$SCRIPT_DIR/.venv/bin/python" ]]; then
+        exec "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/app.py" "$@"
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        exec python3 "$SCRIPT_DIR/app.py" "$@"
+    fi
+
+    log_error "Python 3 was not found. Create the project venv or install Python 3."
     # ----------------------
 
     log_info "Script finished."
